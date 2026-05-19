@@ -1,0 +1,29 @@
+SECURITY AUDIT REPORT
+
+Table: active_alerts
+Primary Key: false
+Indexes: 0
+----------------------
+Table: agent
+Primary Key: false
+Indexes: 0
+----------------------
+Table: danger_areas
+Primary Key: false
+Indexes: 0
+----------------------
+Table: fence
+Primary Key: false
+Indexes: 0
+----------------------
+Table: injured_elephants
+Primary Key: false
+Indexes: 0
+----------------------
+Table: users
+Primary Key: false
+Indexes: 0
+----------------------
+DATABASE HEALTH REPORT
+Generated: 2026-05-17T22:18:39.886916500
+

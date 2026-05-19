@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-card: #ffffff;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --border-primary: #e2e8f0;
+
+  --input-bg: #f8fafc;
+
+  --sidebar-bg: #0f172a;
+}
+
+.dark {
+
+  --bg-primary: #020617;
+  --bg-secondary: #020817;
+  --bg-card: #0f172a;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+
+  --border-primary: #1e293b;
+
+  --input-bg: #1e293b;
+
+  --sidebar-bg: #020617;
+}
+
+@theme {
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --font-mono:
+    "JetBrains Mono",
+    ui-monospace,
+    SFMono-Regular,
+    monospace;
+}
+
+@layer base {
+
+  * {
+    border-color: var(--border-primary);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+
+    background: var(--bg-primary);
+    color: var(--text-primary);
+
+    @apply font-sans antialiased transition-all duration-300;
+  }
+}
+
+@layer components {
+
+  .glass-card {
+
+    background: var(--bg-card);
+    border: 1px solid var(--border-primary);
+
+    @apply rounded-2xl shadow-sm transition-all duration-300;
+  }
+
+  .theme-card {
+
+    background: var(--bg-card);
+    border: 1px solid var(--border-primary);
+
+    @apply rounded-2xl transition-all duration-300;
+  }
+
+  .theme-card-active {
+
+    @apply border-blue-600 shadow-lg;
+  }
+}

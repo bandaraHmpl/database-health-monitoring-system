@@ -1,0 +1,29 @@
+TABLE PROFILING REPORT
+
+Table: active_alerts
+Columns: 0
+Rows: 5
+----------------------
+Table: agent
+Columns: 0
+Rows: 0
+----------------------
+Table: danger_areas
+Columns: 0
+Rows: 0
+----------------------
+Table: fence
+Columns: 0
+Rows: 18
+----------------------
+Table: injured_elephants
+Columns: 0
+Rows: 15
+----------------------
+Table: users
+Columns: 0
+Rows: 6
+----------------------
+DATABASE HEALTH REPORT
+Generated: 2026-05-17T22:18:41.587848700
+

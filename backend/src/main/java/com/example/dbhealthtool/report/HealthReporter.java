@@ -1,0 +1,174 @@
+package com.example.dbhealthtool.report;
+
+import com.example.dbhealthtool.model.ReportInfo;
+import com.example.dbhealthtool.model.TableHealth;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+
+public class HealthReporter {
+
+    private final List<ReportInfo> reports =
+            new ArrayList<>();
+
+    public List<ReportInfo> getReports() {
+
+        return reports;
+    }
+
+    public ReportInfo generateReport(
+            List<TableHealth> tables,
+            String type
+    ) throws Exception {
+
+        File dir = new File("reports");
+
+        if (!dir.exists()) {
+
+            dir.mkdirs();
+        }
+
+        String timestamp =
+                LocalDateTime.now().format(
+                        DateTimeFormatter.ofPattern(
+                                "yyyyMMdd_HHmmss_SSS"
+                        )
+                );
+
+        String fileName =
+                "health_report_" + timestamp + ".txt";
+
+        Path reportFile =
+                Paths.get("reports", fileName);
+
+        StringBuilder content =
+                new StringBuilder();
+
+        if (type.equalsIgnoreCase("STANDARD")) {
+
+            content.append("STANDARD DATABASE REPORT\n\n");
+
+            for (TableHealth table : tables) {
+
+                content.append("Table: ")
+                        .append(table.getTableName())
+                        .append("\n");
+
+                content.append("Rows: ")
+                        .append(table.getRowCount())
+                        .append("\n");
+
+                content.append("Score: ")
+                        .append(table.getScore())
+                        .append("\n");
+
+                content.append("----------------------\n");
+            }
+
+        } else if (type.equalsIgnoreCase("SECURITY")) {
+
+            content.append("SECURITY AUDIT REPORT\n\n");
+
+            for (TableHealth table : tables) {
+
+                content.append("Table: ")
+                        .append(table.getTableName())
+                        .append("\n");
+
+                content.append("Primary Key: ")
+                        .append(table.isHasPrimaryKey())
+                        .append("\n");
+
+                content.append("Indexes: ")
+                        .append(table.getIndexCount())
+                        .append("\n");
+
+                content.append("----------------------\n");
+            }
+
+        } else if (type.equalsIgnoreCase("PROFILE")) {
+
+            content.append("TABLE PROFILING REPORT\n\n");
+
+            for (TableHealth table : tables) {
+
+                content.append("Table: ")
+                        .append(table.getTableName())
+                        .append("\n");
+
+                content.append("Columns: ")
+                        .append(table.getColumnCount())
+                        .append("\n");
+
+                content.append("Rows: ")
+                        .append(table.getRowCount())
+                        .append("\n");
+
+                content.append("----------------------\n");
+            }
+        }
+
+        content.append(
+                "DATABASE HEALTH REPORT\n"
+        );
+
+        content.append(
+                "Generated: "
+        ).append(
+                LocalDateTime.now()
+        ).append("\n\n");
+
+        Files.write(
+                reportFile,
+                content.toString().getBytes()
+        );
+
+        ReportInfo report =
+                new ReportInfo();
+
+        report.setId(timestamp);
+
+        report.setType(
+                "Database Health"
+        );
+
+        report.setCreatedOn(
+                LocalDateTime.now().format(
+                        DateTimeFormatter.ofPattern(
+                                "yyyy-MM-dd HH:mm"
+                        )
+                )
+        );
+
+        report.setStatus("SUCCESS");
+
+        report.setFileName(fileName);
+
+        long bytes = Files.size(reportFile);
+
+        double kb = bytes / 1024.0;
+
+        report.setSize(
+                String.format("%.2f KB", kb)
+        );
+
+        reports.add(0, report);
+
+        return report;
+    }
+
+    public void deleteReport(
+            String id
+    ) {
+
+        reports.removeIf(
+                r -> r.getId().equals(id)
+        );
+    }
+}

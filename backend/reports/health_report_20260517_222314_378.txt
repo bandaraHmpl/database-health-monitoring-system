@@ -1,0 +1,29 @@
+STANDARD DATABASE REPORT
+
+Table: active_alerts
+Rows: 5
+Score: 50
+----------------------
+Table: agent
+Rows: 0
+Score: 20
+----------------------
+Table: danger_areas
+Rows: 0
+Score: 20
+----------------------
+Table: fence
+Rows: 18
+Score: 75
+----------------------
+Table: injured_elephants
+Rows: 15
+Score: 75
+----------------------
+Table: users
+Rows: 6
+Score: 50
+----------------------
+DATABASE HEALTH REPORT
+Generated: 2026-05-17T22:23:14.384278400
+

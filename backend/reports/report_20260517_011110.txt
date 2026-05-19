@@ -1,0 +1,14 @@
+========== DATABASE HEALTH REPORT ==========
+
+Table: city
+Rows: 4079
+Score: 100
+-------------------------------------
+Table: country
+Rows: 239
+Score: 100
+-------------------------------------
+Table: countrylanguage
+Rows: 984
+Score: 100
+-------------------------------------
