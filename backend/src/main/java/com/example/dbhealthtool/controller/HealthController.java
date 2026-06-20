@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalDateTime;
@@ -758,5 +759,124 @@ public class HealthController {
                                 + "\""
                 )
                 .body(resource);
+    }
+
+    /* =====================================================
+       LOGIN
+    ===================================================== */
+
+    @PostMapping("/auth/login")
+    public Map<String, Object> login(
+            @RequestBody Map<String, String> body
+    ) {
+
+        Map<String, Object> response =
+                new HashMap<>();
+
+        try {
+
+            String email = body.get("email");
+            String password = body.get("password");
+
+            Connection conn =
+                    DatabaseConnection.getToolConnection();
+
+            PreparedStatement ps =
+                    conn.prepareStatement(
+                            "SELECT id, username, email FROM users " +
+                                    "WHERE email = ? AND password = ?"
+                    );
+
+            ps.setString(1, email);
+            ps.setString(2, password);
+
+            ResultSet rs = ps.executeQuery();
+
+            if (rs.next()) {
+
+                response.put("success", true);
+                response.put("message", "Login successful");
+                response.put("userId", rs.getInt("id"));
+                response.put("username", rs.getString("username"));
+                response.put("email", rs.getString("email"));
+
+            } else {
+
+                response.put("success", false);
+                response.put("message", "Invalid email or password");
+            }
+
+        } catch (Exception e) {
+
+            response.put("success", false);
+            response.put("message", e.getMessage());
+        }
+
+        return response;
+    }
+
+    /* =====================================================
+       REGISTER
+    ===================================================== */
+
+    @PostMapping("/auth/register")
+    public Map<String, Object> register(
+            @RequestBody Map<String, String> body
+    ) {
+
+        Map<String, Object> response =
+                new HashMap<>();
+
+        try {
+
+            String email = body.get("email");
+            String password = body.get("password");
+            String fullName = body.get("fullName");
+            String username = (fullName != null && !fullName.isEmpty())
+                    ? fullName
+                    : email.split("@")[0];
+
+            Connection conn =
+                    DatabaseConnection.getToolConnection();
+
+            // Check if email already exists
+            PreparedStatement checkPs =
+                    conn.prepareStatement(
+                            "SELECT id FROM users WHERE email = ?"
+                    );
+
+            checkPs.setString(1, email);
+
+            ResultSet rs = checkPs.executeQuery();
+
+            if (rs.next()) {
+
+                response.put("success", false);
+                response.put("message", "Email already registered");
+                return response;
+            }
+
+            // Insert new user
+            PreparedStatement insertPs =
+                    conn.prepareStatement(
+                            "INSERT INTO users (email, username, password) " +
+                                    "VALUES (?, ?, ?)"
+                    );
+
+            insertPs.setString(1, email);
+            insertPs.setString(2, username);
+            insertPs.setString(3, password);
+            insertPs.executeUpdate();
+
+            response.put("success", true);
+            response.put("message", "Account created successfully");
+
+        } catch (Exception e) {
+
+            response.put("success", false);
+            response.put("message", e.getMessage());
+        }
+
+        return response;
     }
 }

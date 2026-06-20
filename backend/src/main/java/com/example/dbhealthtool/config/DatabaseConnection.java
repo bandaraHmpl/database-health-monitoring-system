@@ -7,6 +7,7 @@ import java.util.Properties;
 
 public class DatabaseConnection {
 
+    // Scan database connection
     private static Connection connection;
     private static String currentHost = null;
     private static String currentPort = null;
@@ -14,17 +15,17 @@ public class DatabaseConnection {
     private static String currentUser = null;
     private static String currentPass = null;
 
+    // Tool's own database connection
+    private static Connection toolConnection;
+
     public static Connection getConnection() {
         return getConnection(false);
     }
 
     public static Connection getConnection(boolean forceNew) {
         try {
-            // Load current config from file
             Properties props = new Properties();
-            FileInputStream fis = new FileInputStream(
-                    "src/main/resources/config.properties"
-            );
+            FileInputStream fis = new FileInputStream("src/main/resources/config.properties");
             props.load(fis);
             fis.close();
 
@@ -34,13 +35,11 @@ public class DatabaseConnection {
             String user = props.getProperty("db.username", "root");
             String pass = props.getProperty("db.password", "");
 
-            // Check if config changed or connection is invalid
             boolean configChanged = !host.equals(currentHost) || !port.equals(currentPort) ||
                     !db.equals(currentDb) || !user.equals(currentUser) ||
                     !pass.equals(currentPass);
 
             if (forceNew || configChanged || connection == null || connection.isClosed()) {
-                // Close old connection if exists
                 if (connection != null && !connection.isClosed()) {
                     connection.close();
                 }
@@ -54,15 +53,46 @@ public class DatabaseConnection {
                 currentUser = user;
                 currentPass = pass;
 
-                System.out.println("Database Connected: " + url);
+                System.out.println("Scan Database Connected: " + url);
             }
 
         } catch (Exception e) {
-            System.out.println("Database Connection Failed: " + e.getMessage());
+            System.out.println("Scan Database Connection Failed: " + e.getMessage());
             e.printStackTrace();
         }
 
         return connection;
+    }
+
+    // Tool's own database connection
+    public static Connection getToolConnection() {
+        try {
+            if (toolConnection != null && !toolConnection.isClosed()) {
+                return toolConnection;
+            }
+
+            Properties props = new Properties();
+            FileInputStream fis = new FileInputStream("src/main/resources/config.properties");
+            props.load(fis);
+            fis.close();
+
+            String host = props.getProperty("tool.db.host", "localhost");
+            String port = props.getProperty("tool.db.port", "3306");
+            String db = props.getProperty("tool.db.name", "dbhealth_tool");
+            String user = props.getProperty("tool.db.username", "root");
+            String pass = props.getProperty("tool.db.password", "");
+
+            String url = "jdbc:mysql://" + host + ":" + port + "/" + db + "?useSSL=false&allowPublicKeyRetrieval=true";
+            toolConnection = DriverManager.getConnection(url, user, pass);
+
+            System.out.println("Tool Database Connected: " + url);
+
+        } catch (Exception e) {
+            System.out.println("Tool Database Connection Failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return toolConnection;
     }
 
     public static void refreshConnection() {

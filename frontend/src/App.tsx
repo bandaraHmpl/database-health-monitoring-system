@@ -25,6 +25,14 @@ import Reports from './components/Reports';
 import SavedReports from './components/SavedReports';
 import SettingsPage from './components/Settings';
 import About from './components/About';
+import LoginModule from "./components/Login";
+
+// User type definition
+interface UserType {
+  email: string;
+  fullName: string;
+  isLoggedIn: boolean;
+}
 
 type PageId =
   | 'dashboard'
@@ -36,15 +44,20 @@ type PageId =
 
 export default function App() {
 
-  const [activePage, setActivePage] =
-    useState<PageId>('dashboard');
+  const [activePage, setActivePage] = useState<PageId>('dashboard');
 
   // =========================
   // THEME
   // =========================
 
-  const [theme, setTheme] =
-    useState('light');
+  const [theme, setTheme] = useState('light');
+
+  // =========================
+  // AUTHENTICATION
+  // =========================
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserType | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // =========================
   // LOAD DB CONFIG
@@ -73,11 +86,31 @@ export default function App() {
     }
   };
 
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      const userStr = localStorage.getItem('db_health_current_user');
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          setIsAuthenticated(true);
+          setCurrentUser(user);
+        } catch (e) {
+          console.error('Failed to parse user', e);
+        }
+      }
+      setAuthLoading(false);
+    };
+    checkAuth();
+  }, []);
+
   useEffect(() => {
 
-    fetchDbConfig();
+    if (isAuthenticated) {
+      fetchDbConfig();
+    }
 
-  }, []);
+  }, [isAuthenticated]);
 
 useEffect(() => {
 
@@ -212,6 +245,38 @@ const [dbConfig, setDbConfig] = useState({
   username: 'Loading...'
 });
 
+  // =========================
+  // AUTH HANDLERS
+  // =========================
+
+  const handleLoginSuccess = (user: UserType) => {
+    setIsAuthenticated(true);
+    setCurrentUser(user);
+    localStorage.setItem('db_health_current_user', JSON.stringify(user));
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    localStorage.removeItem('db_health_current_user');
+    // Optionally clear any other session data
+    sessionStorage.clear();
+  };
+
+  // Show loading state
+  if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-[#020617]">
+        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!isAuthenticated) {
+    return <LoginModule onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
 
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-[#020617] transition-all duration-300">
@@ -302,9 +367,9 @@ const [dbConfig, setDbConfig] = useState({
 
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
 
-              <span className="text-xs text-slate-400 font-medium tracking-wide">
-                CONNECTED
-              </span>
+             <span className="text-xs text-slate-400 font-medium tracking-wide">
+               SCAN TARGET
+             </span>
 
             </div>
 
@@ -341,18 +406,16 @@ const [dbConfig, setDbConfig] = useState({
 
         <div className="p-4 border-t border-slate-800">
 
-          <button className="flex items-center gap-3 px-4 py-3 w-full text-slate-400 hover:text-red-400 transition-colors text-sm font-medium">
-
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 px-4 py-3 w-full text-slate-400 hover:text-red-400 transition-colors text-sm font-medium"
+          >
             <LogOut size={18} />
-
             Logout Session
-
           </button>
 
           <div className="px-4 py-2 text-[10px] text-slate-600 font-mono">
-
             BUILD v1.0.0-PRO
-
           </div>
 
         </div>
@@ -427,11 +490,11 @@ const [dbConfig, setDbConfig] = useState({
               <div className="text-right hidden sm:block">
 
                 <p className="text-sm font-semibold text-slate-900 dark:text-white leading-none">
-                  Admin User
+                  {currentUser?.fullName || 'Admin User'}
                 </p>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Super Administrator
+                  {currentUser?.email}
                 </p>
 
               </div>
