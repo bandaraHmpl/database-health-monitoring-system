@@ -14,8 +14,13 @@ import {
 } from 'lucide-react';
 
 import { cn } from '../lib/utils';
+import { apiFetch, downloadFile } from '../lib/api';
 
-export default function Reports() {
+interface ReportsProps {
+  userId: number;
+}
+
+export default function Reports({ userId }: ReportsProps) {
 
   const [reports, setReports] =
     useState<any[]>([]);
@@ -33,9 +38,7 @@ export default function Reports() {
 
       setLoading(true);
 
-      const res = await fetch(
-        'http://localhost:8080/reports'
-      );
+      const res = await apiFetch('/reports', {}, userId);
 
       const data = await res.json();
 
@@ -62,7 +65,7 @@ export default function Reports() {
 
     fetchReports();
 
-  }, []);
+  }, [userId]);
 
   /* =========================================================
      GENERATE REPORT
@@ -74,11 +77,10 @@ export default function Reports() {
 
     try {
 
-      await fetch(
-        `http://localhost:8080/reports/generate?type=${type}`,
-        {
-          method: 'POST'
-        }
+      await apiFetch(
+        `/reports/generate?type=${type}`,
+        { method: 'POST' },
+        userId
       );
 
       fetchReports();
@@ -94,14 +96,22 @@ export default function Reports() {
      DOWNLOAD REPORT
   ========================================================= */
 
-  const handleDownload = (
+  const handleDownload = async (
     fileName: string
   ) => {
 
-    window.open(
-      `http://localhost:8080/reports/download/${fileName}`,
-      '_blank'
-    );
+    try {
+
+      await downloadFile(
+        `/reports/download/${fileName}`,
+        fileName
+      );
+
+    } catch (err) {
+
+      console.error(err);
+
+    }
   };
 
   /* =========================================================
@@ -114,11 +124,10 @@ export default function Reports() {
 
     try {
 
-      await fetch(
-        `http://localhost:8080/reports/${id}`,
-        {
-          method: 'DELETE'
-        }
+      await apiFetch(
+        `/reports/${id}`,
+        { method: 'DELETE' },
+        userId
       );
 
       fetchReports();

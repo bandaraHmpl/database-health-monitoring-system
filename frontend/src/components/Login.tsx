@@ -14,6 +14,8 @@ import {
   Info
 } from 'lucide-react';
 import { User, AuthTab } from '../types';
+import { saveSession } from '../lib/session';
+import { BASE_URL } from '../lib/api';
 
 interface LoginModuleProps {
   onLoginSuccess: (user: User) => void;
@@ -88,7 +90,7 @@ export default function LoginModule({ onLoginSuccess, initialUserEmail = "demo@g
 
     try {
       const response = await fetch(
-        "http://localhost:8080/auth/login",  // ✅ /auth/login
+        `${BASE_URL}/auth/login`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -104,11 +106,16 @@ export default function LoginModule({ onLoginSuccess, initialUserEmail = "demo@g
       setIsLoading(false);
 
       if (data.success) {
-        onLoginSuccess({
+        const loggedInUser: User = {
+          userId: data.userId,
           email: data.email,
-          fullName: data.username,  // ✅ backend returns 'username'
+          fullName: data.username,
+          token: data.token,
           isLoggedIn: true
-        });
+        };
+
+        saveSession(loggedInUser);
+        onLoginSuccess(loggedInUser);
       } else {
         setError(data.message);
       }
@@ -136,16 +143,13 @@ export default function LoginModule({ onLoginSuccess, initialUserEmail = "demo@g
     try {
 
       const response = await fetch(
-        "http://localhost:8080/auth/register",
+        `${BASE_URL}/auth/register`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            email,
-            password
-          })
+          body: JSON.stringify({ email, password, fullName })
         }
       );
 

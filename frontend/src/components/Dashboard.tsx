@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import {
   ShieldCheck,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '../lib/utils';
+import { apiFetch } from '../lib/api';
 
 import {
   BarChart,
@@ -23,12 +24,96 @@ import {
   Cell
 } from 'recharts';
 
-export default function Dashboard() {
+const CustomTooltip = ({
+  active,
+  payload,
+  label
+}: any) => {
 
-  const [dashboard, setDashboard] = useState<any>(null);
+  if (active && payload && payload.length) {
+
+    const score = payload[0].value;
+
+    let status = '';
+    let statusColor = '';
+
+    if (score >= 80) {
+
+      status = 'Healthy';
+      statusColor =
+        'text-emerald-500';
+
+    } else if (score >= 50) {
+
+      status = 'Warning';
+      statusColor =
+        'text-amber-500';
+
+    } else {
+
+      status = 'Critical';
+      statusColor =
+        'text-red-500';
+    }
+
+    return (
+
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700">
+
+        <p className="font-bold text-slate-900 dark:text-white">
+          {label}
+        </p>
+
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+
+          Health Score:
+          <span className="font-bold ml-1">
+            {score}/100
+          </span>
+
+        </p>
+
+        <p className={cn(
+          "text-sm font-medium",
+          statusColor
+        )}>
+          {status}
+        </p>
+
+      </div>
+    );
+  }
+
+  return null;
+};
+
+export default function Dashboard({ userId }: { userId: number }) {
+
+  const emptySummary = {
+    healthScore: 0,
+    totalTables: 0,
+    activeIssues: 0,
+    insights: 0,
+  };
+
+  const [dashboard, setDashboard] = useState<any>({
+    summary: emptySummary,
+    tables: [],
+    tableHealth: [],
+    distribution: [],
+    scanHistory: [],
+    issues: [],
+    suggestions: [],
+  });
   const [tableStats, setTableStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
+
+  // Largest row count, computed once per data change (not once per table row)
+  const maxRows = useMemo(
+    () => Math.max(1, ...tableStats.map((t: any) => t.rowCount ?? 0)),
+    [tableStats]
+  );
 
   const healthDistribution =
     Array.isArray(dashboard?.distribution)
@@ -37,20 +122,43 @@ export default function Dashboard() {
 
   const fetchData = () => {
 
+    if (!userId || userId <= 0) {
+      setLoading(false);
+      setHasData(false);
+      return;
+    }
+
     setLoading(true);
 
-    fetch('http://localhost:8080/dashboard')
+    apiFetch('/dashboard', {}, userId)
       .then(res => res.json())
       .then(data => {
 
-        setDashboard(data);
-        setTableStats(data.tables || []);
+        const summary = {
+          healthScore: data?.summary?.healthScore ?? 0,
+          totalTables: data?.summary?.totalTables ?? 0,
+          activeIssues: data?.summary?.activeIssues ?? 0,
+          insights: data?.summary?.insights ?? 0,
+        };
 
-        if (data.tables && data.tables.length > 0) {
-          setHasData(true);
-        } else {
-          setHasData(false);
-        }
+        const normalized = {
+          ...data,
+          summary,
+          tables: Array.isArray(data?.tables) ? data.tables : [],
+          tableHealth: Array.isArray(data?.tableHealth) ? data.tableHealth : [],
+          distribution: Array.isArray(data?.distribution) ? data.distribution : [],
+          scanHistory: Array.isArray(data?.scanHistory) ? data.scanHistory : [],
+          issues: Array.isArray(data?.issues) ? data.issues : [],
+          suggestions: Array.isArray(data?.suggestions) ? data.suggestions : [],
+        };
+
+        setDashboard(normalized);
+        setTableStats(normalized.tables);
+
+        setHasData(
+          data?.status === 'success'
+          && normalized.tables.length > 0
+        );
 
         setLoading(false);
 
@@ -87,7 +195,7 @@ export default function Dashboard() {
 
     };
 
-  }, []);
+  }, [userId]);
 
   const tableHealthData =
     dashboard?.tableHealth || [];
@@ -101,69 +209,6 @@ export default function Dashboard() {
       return '#f59e0b';
 
     return '#ef4444';
-  };
-
-  const CustomTooltip = ({
-    active,
-    payload,
-    label
-  }: any) => {
-
-    if (active && payload && payload.length) {
-
-      const score = payload[0].value;
-
-      let status = '';
-      let statusColor = '';
-
-      if (score >= 80) {
-
-        status = 'Healthy';
-        statusColor =
-          'text-emerald-500';
-
-      } else if (score >= 50) {
-
-        status = 'Warning';
-        statusColor =
-          'text-amber-500';
-
-      } else {
-
-        status = 'Critical';
-        statusColor =
-          'text-red-500';
-      }
-
-      return (
-
-        <div className="bg-white dark:bg-slate-900 p-3 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700">
-
-          <p className="font-bold text-slate-900 dark:text-white">
-            {label}
-          </p>
-
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-
-            Health Score:
-            <span className="font-bold ml-1">
-              {score}/100
-            </span>
-
-          </p>
-
-          <p className={cn(
-            "text-sm font-medium",
-            statusColor
-          )}>
-            {status}
-          </p>
-
-        </div>
-      );
-    }
-
-    return null;
   };
 
   const getHealthStatus = (score: number) => {
@@ -519,14 +564,16 @@ export default function Dashboard() {
 
             <div className="space-y-4">
 
-              {tableStats.map((table: any, index: number) => {
+              {tableStats.length === 0 ? (
 
-                const maxRows = Math.max(
-                  ...tableStats.map((t: any) => t.rowCount || 1)
-                );
+                <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-6">
+                  No table statistics available yet.
+                </p>
+
+              ) : tableStats.map((table: any, index: number) => {
 
                 const width =
-                  ((table.rowCount || 0) / maxRows) * 100;
+                  ((table.rowCount ?? 0) / maxRows) * 100;
 
                 return (
 

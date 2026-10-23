@@ -1,7 +1,4 @@
-import axios from 'axios';
 import React, { useState } from 'react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import {
   Play,
   Terminal,
@@ -18,6 +15,11 @@ import {
 
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
+import { apiFetch } from '../lib/api';
+
+interface ScanDatabaseProps {
+  userId: number;
+}
 
 interface LogEntry {
   id: string;
@@ -42,7 +44,7 @@ interface ScanResponse {
   tableHealth: any[];
 }
 
-export default function ScanDatabase() {
+export default function ScanDatabase({ userId }: ScanDatabaseProps) {
 
   const [isScanning, setIsScanning] =
     useState(false);
@@ -116,10 +118,17 @@ export default function ScanDatabase() {
 
     try {
 
-      const res =
-        await axios.get(
-          'http://localhost:8080/scan'
-        );
+      if (!userId || userId <= 0) {
+        throw new Error('User is not authenticated');
+      }
+
+      const httpRes = await apiFetch('/scan', {}, userId);
+
+      if (!httpRes.ok) {
+        throw new Error(`Scan failed (${httpRes.status})`);
+      }
+
+      const res = { data: await httpRes.json() };
 
       clearInterval(interval);
 
@@ -225,9 +234,15 @@ export default function ScanDatabase() {
   // PDF
   // =========================
 
-  const generatePDF = () => {
+  const generatePDF = async () => {
 
     if (!scanData) return;
+
+    // PDF libraries are large (~400 kB) - only download them when needed
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
 
     const doc =
       new jsPDF();

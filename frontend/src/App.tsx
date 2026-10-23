@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import {
   LayoutDashboard,
   Search,
@@ -9,30 +9,38 @@ import {
   ChevronRight,
   LogOut,
   Bell,
-  User,
+  User as UserIcon,
   DatabaseIcon,
   Moon,
-  Sun
+  Sun,
+  AlertTriangle
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
+import { NotificationItem, User } from './types';
+import { clearSession, getStoredUser, saveSession } from './lib/session';
+import { apiFetch } from './lib/api';
 
 // Pages
-import Dashboard from './components/Dashboard';
-import ScanDatabase from './components/ScanDatabase';
-import Reports from './components/Reports';
-import SavedReports from './components/SavedReports';
-import SettingsPage from './components/Settings';
-import About from './components/About';
-import LoginModule from "./components/Login";
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const ScanDatabase = lazy(() => import('./components/ScanDatabase'));
+const Reports = lazy(() => import('./components/Reports'));
+const SavedReports = lazy(() => import('./components/SavedReports'));
+const SettingsPage = lazy(() => import('./components/Settings'));
+const About = lazy(() => import('./components/About'));
+const LoginModule = lazy(() => import("./components/Login"));
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center h-64" role="status" aria-label="Loading">
+      <div className="h-8 w-8 rounded-full border-4 border-slate-300 border-t-blue-600 animate-spin" />
+    </div>
+  );
+}
 
 // User type definition
-interface UserType {
-  email: string;
-  fullName: string;
-  isLoggedIn: boolean;
-}
+type UserType = User;
 
 type PageId =
   | 'dashboard'
@@ -51,6 +59,12 @@ export default function App() {
   // =========================
 
   const [theme, setTheme] = useState('light');
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
+
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   // =========================
   // AUTHENTICATION
@@ -67,9 +81,7 @@ export default function App() {
 
     try {
 
-      const res = await fetch(
-        'http://localhost:8080/config'
-      );
+      const res = await apiFetch('/config');
 
       const data = await res.json();
 
@@ -88,20 +100,12 @@ export default function App() {
 
   // Check authentication on mount
   useEffect(() => {
-    const checkAuth = () => {
-      const userStr = localStorage.getItem('db_health_current_user');
-      if (userStr) {
-        try {
-          const user = JSON.parse(userStr);
-          setIsAuthenticated(true);
-          setCurrentUser(user);
-        } catch (e) {
-          console.error('Failed to parse user', e);
-        }
-      }
-      setAuthLoading(false);
-    };
-    checkAuth();
+    const user = getStoredUser();
+    if (user) {
+      setIsAuthenticated(true);
+      setCurrentUser(user);
+    }
+    setAuthLoading(false);
   }, []);
 
   useEffect(() => {
@@ -173,7 +177,62 @@ useEffect(() => {
     );
 
     setTheme(selectedTheme);
+    setResolvedTheme(actualTheme as 'light' | 'dark');
   };
+
+  const fetchNotifications = useCallback(async () => {
+    const userId = currentUser?.userId;
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const res = await apiFetch('/notifications', {}, userId);
+      const data = await res.json();
+      const items = Array.isArray(data.notifications)
+        ? data.notifications
+        : [];
+
+      setNotifications(items);
+      setNotificationCount(data.count ?? items.length);
+    } catch (err) {
+      console.error('Failed to load notifications', err);
+    }
+  }, [currentUser?.userId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser?.userId) {
+      return;
+    }
+
+    fetchNotifications();
+
+    const handleRefresh = () => {
+      fetchNotifications();
+    };
+
+    window.addEventListener('refreshDashboard', handleRefresh);
+
+    return () => {
+      window.removeEventListener('refreshDashboard', handleRefresh);
+    };
+  }, [isAuthenticated, currentUser?.userId, fetchNotifications]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        notificationRef.current
+        && !notificationRef.current.contains(event.target as Node)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // =========================
   // NAVIGATION
@@ -213,20 +272,29 @@ useEffect(() => {
   ] as const;
 
   const renderPage = () => {
+    const userId = currentUser?.userId;
+
+    if (!userId) {
+      return (
+        <div className="flex justify-center items-center h-96">
+          <p className="text-slate-500">Session expired. Please log in again.</p>
+        </div>
+      );
+    }
 
     switch (activePage) {
 
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard key={userId} userId={userId} />;
 
       case 'scan':
-        return <ScanDatabase />;
+        return <ScanDatabase userId={userId} />;
 
       case 'reports':
-        return <Reports />;
+        return <Reports userId={userId} />;
 
       case 'saved':
-        return <SavedReports />;
+        return <SavedReports userId={userId} />;
 
       case 'settings':
         return <SettingsPage />;
@@ -235,7 +303,7 @@ useEffect(() => {
         return <About />;
 
       default:
-        return <Dashboard />;
+        return <Dashboard key={userId} userId={userId} />;
     }
   };
 
@@ -250,18 +318,42 @@ const [dbConfig, setDbConfig] = useState({
   // =========================
 
   const handleLoginSuccess = (user: UserType) => {
+    saveSession(user);
     setIsAuthenticated(true);
     setCurrentUser(user);
-    localStorage.setItem('db_health_current_user', JSON.stringify(user));
+    setActivePage('dashboard');
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setCurrentUser(null);
-    localStorage.removeItem('db_health_current_user');
-    // Optionally clear any other session data
+    setNotifications([]);
+    setNotificationCount(0);
+    setShowNotifications(false);
+    clearSession();
     sessionStorage.clear();
   };
+
+  // Token rejected by the backend (expired / invalid) -> back to login
+  useEffect(() => {
+    const onExpired = () => handleLogout();
+    window.addEventListener('auth-expired', onExpired);
+    return () => window.removeEventListener('auth-expired', onExpired);
+  }, []);
+
+  // After login, quietly download the other pages in the background so
+  // switching tabs feels instant (the first screen loads without them).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const id = window.setTimeout(() => {
+      import('./components/ScanDatabase');
+      import('./components/Reports');
+      import('./components/SavedReports');
+      import('./components/Settings');
+      import('./components/About');
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [isAuthenticated]);
 
   // Show loading state
   if (authLoading) {
@@ -274,7 +366,11 @@ const [dbConfig, setDbConfig] = useState({
 
   // Show login if not authenticated
   if (!isAuthenticated) {
-    return <LoginModule onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <LoginModule onLoginSuccess={handleLoginSuccess} />
+      </Suspense>
+    );
   }
 
   return (
@@ -455,7 +551,7 @@ const [dbConfig, setDbConfig] = useState({
             <button
               onClick={() =>
                 applyTheme(
-                  theme === 'dark'
+                  resolvedTheme === 'dark'
                     ? 'light'
                     : 'dark'
                 )
@@ -464,22 +560,100 @@ const [dbConfig, setDbConfig] = useState({
               className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:scale-105 transition-all"
             >
 
-              {theme === 'dark'
+              {resolvedTheme === 'dark'
                 ? <Sun size={18} />
                 : <Moon size={18} />
               }
 
             </button>
 
-            {/* BELL */}
+            <div className="relative" ref={notificationRef}>
 
-            <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white relative transition-colors">
+              <button
+                onClick={() => {
+                  setShowNotifications((prev) => !prev);
+                  if (!showNotifications) {
+                    fetchNotifications();
+                  }
+                }}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white relative transition-colors"
+              >
 
-              <Bell size={20} />
+                <Bell size={20} />
 
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white dark:border-slate-900" />
+                {notificationCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 text-[9px] font-bold text-white flex items-center justify-center">
+                    {notificationCount > 9 ? '9+' : notificationCount}
+                  </span>
+                )}
 
-            </button>
+              </button>
+
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 overflow-hidden"
+                  >
+                    <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                        Notifications
+                      </p>
+                      {notificationCount > 0 && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-red-500">
+                          {notificationCount} active
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="max-h-72 overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <div className="px-4 py-8 text-center">
+                          <Bell size={24} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            No issues found. Run a scan to check database health.
+                          </p>
+                        </div>
+                      ) : (
+                        notifications.map((item, index) => (
+                          <div
+                            key={`${item.title}-${index}`}
+                            className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                          >
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle
+                                size={16}
+                                className={cn(
+                                  "mt-0.5 shrink-0",
+                                  item.severity === 'Critical'
+                                    ? "text-red-500"
+                                    : item.severity === 'Warning'
+                                      ? "text-amber-500"
+                                      : "text-blue-500"
+                                )}
+                              />
+                              <div>
+                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                                  {item.title}
+                                </p>
+                                <p className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">
+                                  {item.severity}
+                                  {item.tableName ? ` · ${item.tableName}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+            </div>
 
             <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-2" />
 
@@ -487,21 +661,21 @@ const [dbConfig, setDbConfig] = useState({
 
             <div className="flex items-center gap-3">
 
-              <div className="text-right hidden sm:block">
+              <div className="text-right hidden lg:block">
 
                 <p className="text-sm font-semibold text-slate-900 dark:text-white leading-none">
-                  {currentUser?.fullName || 'Admin User'}
+                    {currentUser?.fullName || 'User'}
                 </p>
 
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  {currentUser?.email}
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {currentUser?.email}
                 </p>
 
               </div>
 
               <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center border border-slate-200 dark:border-slate-700 overflow-hidden">
 
-                <User
+                <UserIcon
                   size={20}
                   className="text-slate-400"
                 />
@@ -546,7 +720,9 @@ const [dbConfig, setDbConfig] = useState({
               className="p-8 h-full text-slate-900 dark:text-white"
             >
 
-              {renderPage()}
+              <Suspense fallback={<PageLoader />}>
+                {renderPage()}
+              </Suspense>
 
             </motion.div>
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '../lib/utils';
+import { apiFetch } from '../lib/api';
 
 export default function Settings() {
 
@@ -119,9 +120,7 @@ export default function Settings() {
         try {
 
             const response =
-                await fetch(
-                    'http://localhost:8080/config'
-                );
+                await apiFetch('/config');
 
             if (response.ok) {
 
@@ -152,8 +151,7 @@ export default function Settings() {
 
         try {
 
-            const response = await fetch(
-                'http://localhost:8080/test-connection',
+            const response = await apiFetch('/test-connection',
                 {
                     method: 'POST',
 
@@ -224,8 +222,7 @@ export default function Settings() {
 
         try {
 
-            const response = await fetch(
-                'http://localhost:8080/save-config',
+            const response = await apiFetch('/save-config',
                 {
                     method: 'POST',
 

@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -66,7 +64,7 @@
     background: var(--bg-primary);
     color: var(--text-primary);
 
-    @apply font-sans antialiased transition-all duration-300;
+    @apply font-sans antialiased transition-colors duration-300;
   }
 }
 

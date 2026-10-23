@@ -11,7 +11,13 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-export default function SavedReports() {
+import { apiFetch, downloadFile } from '../lib/api';
+
+interface SavedReportsProps {
+  userId: number;
+}
+
+export default function SavedReports({ userId }: SavedReportsProps) {
 
   const [reports, setReports] =
     useState<any[]>([]);
@@ -32,9 +38,7 @@ export default function SavedReports() {
 
       setLoading(true);
 
-      const res = await fetch(
-        'http://localhost:8080/reports'
-      );
+      const res = await apiFetch('/reports', {}, userId);
 
       const data = await res.json();
 
@@ -60,20 +64,28 @@ export default function SavedReports() {
 
     fetchReports();
 
-  }, []);
+  }, [userId]);
 
   /* =====================================================
      DOWNLOAD
   ===================================================== */
 
-  const handleDownload = (
+  const handleDownload = async (
     fileName: string
   ) => {
 
-    window.open(
-      `http://localhost:8080/reports/download/${fileName}`,
-      '_blank'
-    );
+    try {
+
+      await downloadFile(
+        `/reports/download/${fileName}`,
+        fileName
+      );
+
+    } catch (err) {
+
+      console.error(err);
+
+    }
   };
 
   /* =====================================================
@@ -86,11 +98,10 @@ export default function SavedReports() {
 
     try {
 
-      await fetch(
-        `http://localhost:8080/reports/${id}`,
-        {
-          method: 'DELETE'
-        }
+      await apiFetch(
+        `/reports/${id}`,
+        { method: 'DELETE' },
+        userId
       );
 
       fetchReports();
