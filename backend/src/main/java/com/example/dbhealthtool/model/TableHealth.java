@@ -92,18 +92,7 @@ public class TableHealth {
 
     public String getStatus() {
 
-        if (score >= 90) {
-
-            return "Healthy";
-
-        } else if (score >= 50) {
-
-            return "Warning";
-
-        } else {
-
-            return "Critical";
-        }
+        return ScoreRules.statusForScore(score);
     }
 
     public void setScore(int score) {
@@ -135,21 +124,6 @@ public class TableHealth {
 
     private void calculateScore() {
 
-        if (rowCount == 0) {
-
-            this.score = 20;
-
-        } else if (rowCount < 10) {
-
-            this.score = 50;
-
-        } else if (rowCount < 100) {
-
-            this.score = 75;
-
-        } else {
-
-            this.score = 100;
-        }
+        this.score = ScoreRules.scoreForRows(rowCount);
     }
 }

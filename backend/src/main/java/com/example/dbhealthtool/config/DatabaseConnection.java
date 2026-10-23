@@ -1,101 +1,185 @@
 package com.example.dbhealthtool.config;
 
-import java.io.FileInputStream;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+
 import java.sql.Connection;
-import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.Properties;
 
-public class DatabaseConnection {
+/**
+ * Two HikariCP connection pools:
+ *  - scan pool: the database that is being health-checked (changes when the
+ *               user saves new settings -> see refreshConnection())
+ *  - tool pool: the tool's own database (users, scan results, reports)
+ *
+ * IMPORTANT: getConnection() / getToolConnection() BORROW a connection from
+ * the pool. Always use try-with-resources so it is returned to the pool:
+ *
+ *     try (Connection conn = DatabaseConnection.getConnection()) { ... }
+ */
+public final class DatabaseConnection {
 
-    // Scan database connection
-    private static Connection connection;
-    private static String currentHost = null;
-    private static String currentPort = null;
-    private static String currentDb = null;
-    private static String currentUser = null;
-    private static String currentPass = null;
+    private static final Object LOCK = new Object();
 
-    // Tool's own database connection
-    private static Connection toolConnection;
+    private static volatile HikariDataSource scanPool;
+    private static volatile HikariDataSource toolPool;
 
-    public static Connection getConnection() {
-        return getConnection(false);
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(DatabaseConnection::shutdown));
     }
 
-    public static Connection getConnection(boolean forceNew) {
+    private DatabaseConnection() {
+    }
+
+    // ------------------------------------------------------------------
+    // Borrow connections
+    // ------------------------------------------------------------------
+
+    public static Connection getConnection() throws SQLException {
+        return getScanPool().getConnection();
+    }
+
+    public static Connection getToolConnection() throws SQLException {
+        return getToolPool().getConnection();
+    }
+
+    // ------------------------------------------------------------------
+    // Lifecycle
+    // ------------------------------------------------------------------
+
+    /** Rebuild the scan pool from config.properties (call after settings change). */
+    public static void refreshConnection() {
+        synchronized (LOCK) {
+            closeQuietly(scanPool);
+            scanPool = null;
+        }
+
         try {
-            Properties props = new Properties();
-            FileInputStream fis = new FileInputStream("src/main/resources/config.properties");
-            props.load(fis);
-            fis.close();
+            getScanPool();
+        } catch (SQLException e) {
+            System.out.println("Scan Database Connection Failed: " + e.getMessage());
+        }
+    }
 
-            String host = props.getProperty("db.host", "localhost");
-            String port = props.getProperty("db.port", "3306");
-            String db = props.getProperty("db.name", "");
-            String user = props.getProperty("db.username", "root");
-            String pass = props.getProperty("db.password", "");
+    public static void resetToolConnection() {
+        synchronized (LOCK) {
+            closeQuietly(toolPool);
+            toolPool = null;
+        }
+    }
 
-            boolean configChanged = !host.equals(currentHost) || !port.equals(currentPort) ||
-                    !db.equals(currentDb) || !user.equals(currentUser) ||
-                    !pass.equals(currentPass);
+    public static void shutdown() {
+        synchronized (LOCK) {
+            closeQuietly(scanPool);
+            closeQuietly(toolPool);
+            scanPool = null;
+            toolPool = null;
+        }
+    }
 
-            if (forceNew || configChanged || connection == null || connection.isClosed()) {
-                if (connection != null && !connection.isClosed()) {
-                    connection.close();
+    // ------------------------------------------------------------------
+    // Pool creation
+    // ------------------------------------------------------------------
+
+    private static HikariDataSource getScanPool() throws SQLException {
+        HikariDataSource pool = scanPool;
+        if (pool != null && !pool.isClosed()) {
+            return pool;
+        }
+
+        synchronized (LOCK) {
+            pool = scanPool;
+            if (pool == null || pool.isClosed()) {
+                Properties props = AppConfig.loadProperties();
+
+                String host = props.getProperty("db.host", "localhost");
+                String port = props.getProperty("db.port", "3306");
+                String db = props.getProperty("db.name", AppConfig.DEFAULT_SCAN_DB).trim();
+                if (db.isEmpty()) {
+                    db = AppConfig.DEFAULT_SCAN_DB;
+                }
+                String user = props.getProperty("db.username", "root");
+                String pass = props.getProperty("db.password", "");
+
+                try {
+                    CreateDatabaseIfNotExists.create(host, port, db, user, pass);
+                    pool = buildPool("dbhealth-scan", host, port, db, user, pass, 5);
+                } catch (Exception e) {
+                    throw new SQLException(
+                            "Unable to connect to scan database. Check Settings.", e
+                    );
                 }
 
-                String url = "jdbc:mysql://" + host + ":" + port + "/" + db + "?useSSL=false&allowPublicKeyRetrieval=true";
-                connection = DriverManager.getConnection(url, user, pass);
-
-                currentHost = host;
-                currentPort = port;
-                currentDb = db;
-                currentUser = user;
-                currentPass = pass;
-
-                System.out.println("Scan Database Connected: " + url);
+                scanPool = pool;
+                System.out.println("Scan Database pool ready: " + host + ":" + port + "/" + db);
             }
-
-        } catch (Exception e) {
-            System.out.println("Scan Database Connection Failed: " + e.getMessage());
-            e.printStackTrace();
+            return pool;
         }
-
-        return connection;
     }
 
-    // Tool's own database connection
-    public static Connection getToolConnection() {
-        try {
-            if (toolConnection != null && !toolConnection.isClosed()) {
-                return toolConnection;
-            }
-
-            Properties props = new Properties();
-            FileInputStream fis = new FileInputStream("src/main/resources/config.properties");
-            props.load(fis);
-            fis.close();
-
-            String host = props.getProperty("tool.db.host", "localhost");
-            String port = props.getProperty("tool.db.port", "3306");
-            String db = props.getProperty("tool.db.name", "dbhealth_tool");
-            String user = props.getProperty("tool.db.username", "root");
-            String pass = props.getProperty("tool.db.password", "");
-
-            String url = "jdbc:mysql://" + host + ":" + port + "/" + db + "?useSSL=false&allowPublicKeyRetrieval=true";
-            toolConnection = DriverManager.getConnection(url, user, pass);
-
-            System.out.println("Tool Database Connected: " + url);
-
-        } catch (Exception e) {
-            System.out.println("Tool Database Connection Failed: " + e.getMessage());
-            e.printStackTrace();
+    private static HikariDataSource getToolPool() throws SQLException {
+        HikariDataSource pool = toolPool;
+        if (pool != null && !pool.isClosed()) {
+            return pool;
         }
 
-        return toolConnection;
+        synchronized (LOCK) {
+            pool = toolPool;
+            if (pool == null || pool.isClosed()) {
+                Properties props = AppConfig.loadProperties();
+
+                String host = props.getProperty("tool.db.host", "localhost");
+                String port = props.getProperty("tool.db.port", "3306");
+                String db = props.getProperty("tool.db.name", "dbhealth_tool");
+                String user = props.getProperty("tool.db.username", "root");
+                String pass = props.getProperty("tool.db.password", "");
+
+                try {
+                    CreateDatabaseIfNotExists.create(host, port, db, user, pass);
+                    pool = buildPool("dbhealth-tool", host, port, db, user, pass, 10);
+                } catch (Exception e) {
+                    throw new SQLException("Unable to connect to tool database.", e);
+                }
+
+                toolPool = pool;
+                System.out.println("Tool Database pool ready: " + host + ":" + port + "/" + db);
+            }
+            return pool;
+        }
     }
 
-    public static void refreshConnection() {
-        getConnection(true);
+    private static HikariDataSource buildPool(
+            String name,
+            String host,
+            String port,
+            String db,
+            String user,
+            String pass,
+            int maxPoolSize
+    ) {
+        HikariConfig cfg = new HikariConfig();
+        cfg.setPoolName(name);
+        cfg.setJdbcUrl(
+                "jdbc:mysql://" + host + ":" + port + "/" + db
+                        + "?useSSL=false&allowPublicKeyRetrieval=true"
+        );
+        cfg.setUsername(user);
+        cfg.setPassword(pass);
+        cfg.setMaximumPoolSize(maxPoolSize);
+        cfg.setMinimumIdle(1);
+        cfg.setConnectionTimeout(5_000);
+        cfg.setValidationTimeout(3_000);
+        cfg.setMaxLifetime(30 * 60 * 1000L);
+        return new HikariDataSource(cfg);
+    }
+
+    private static void closeQuietly(HikariDataSource pool) {
+        if (pool != null && !pool.isClosed()) {
+            try {
+                pool.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 }

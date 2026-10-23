@@ -46,14 +46,6 @@ public class TableInfo {
 
         this.largeTable = rowCount > 1000;
 
-        if(rowCount == 0) {
-            this.status = "Critical";
-        }
-        else if(rowCount < 10) {
-            this.status = "Warning";
-        }
-        else {
-            this.status = "Healthy";
-        }
+        this.status = ScoreRules.statusForRows(rowCount);
     }
 }

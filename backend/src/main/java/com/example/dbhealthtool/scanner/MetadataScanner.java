@@ -7,7 +7,12 @@ import java.util.ArrayList;
 import java.util.List;
 import com.example.dbhealthtool.model.TableHealth;
 import com.example.dbhealthtool.report.SuggestionEngine;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import com.example.dbhealthtool.model.TableInfo;
 
 public class MetadataScanner {
 
@@ -134,46 +139,154 @@ public class MetadataScanner {
         return tableHealthList;
     }
 
-    public List<TableHealth> scanTables() {
+    /**
+     * Tables whose estimated row count (from information_schema) is below this
+     * are counted exactly with COUNT(*) - it is cheap for small tables and the
+     * health thresholds (0 / <10 / <100 rows) need exact numbers. Larger tables
+     * use the estimate, which avoids slow full-table COUNT(*) scans.
+     */
+    private static final int EXACT_COUNT_BELOW = 10_000;
+    private static final int BATCH_SIZE = 50;
 
-        List<TableHealth> tables =
-                new ArrayList<>();
+    /**
+     * Row counts for every base table in the current database, using one
+     * information_schema query plus batched COUNT(*) for small tables
+     * (instead of one query per table).
+     */
+    public List<TableInfo> getTableRowCounts() throws SQLException {
 
-        try {
+        Map<String, Long> estimates = new LinkedHashMap<>();
 
-            List<String> tableNames =
-                    getAllTableNames();
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT TABLE_NAME, COALESCE(TABLE_ROWS, 0) "
+                             + "FROM information_schema.TABLES "
+                             + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
+                             + "ORDER BY TABLE_NAME")) {
 
-            Statement stmt =
-                    connection.createStatement();
+            while (rs.next()) {
+                estimates.put(rs.getString(1), rs.getLong(2));
+            }
+        }
 
-            for (String tableName : tableNames) {
+        Map<String, Long> counts = new HashMap<>(estimates);
 
-                ResultSet rs =
-                        stmt.executeQuery(
-                                "SELECT COUNT(*) FROM `" + tableName + "`"
-                        );
+        List<String> needExact = new ArrayList<>();
+        for (Map.Entry<String, Long> e : estimates.entrySet()) {
+            if (e.getValue() < EXACT_COUNT_BELOW) {
+                needExact.add(e.getKey());
+            }
+        }
 
-                int rowCount = 0;
+        for (int i = 0; i < needExact.size(); i += BATCH_SIZE) {
+            countExact(
+                    needExact.subList(i, Math.min(i + BATCH_SIZE, needExact.size())),
+                    counts
+            );
+        }
+
+        List<TableInfo> result = new ArrayList<>();
+        for (String name : estimates.keySet()) {
+            long rows = counts.getOrDefault(name, 0L);
+            result.add(new TableInfo(name, (int) Math.min(rows, Integer.MAX_VALUE)));
+        }
+        return result;
+    }
+
+    private void countExact(List<String> batch, Map<String, Long> counts) {
+
+        StringBuilder sql = new StringBuilder();
+        for (int i = 0; i < batch.size(); i++) {
+            if (i > 0) {
+                sql.append(" UNION ALL ");
+            }
+            sql.append("SELECT ").append(i).append(" AS idx, COUNT(*) AS cnt FROM `")
+                    .append(batch.get(i).replace("`", "``"))
+                    .append("`");
+        }
+
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(sql.toString())) {
+
+            while (rs.next()) {
+                counts.put(batch.get(rs.getInt(1)), rs.getLong(2));
+            }
+            return;
+
+        } catch (SQLException batchFailure) {
+            // One bad table breaks the whole UNION - fall back to one by one
+        }
+
+        for (String table : batch) {
+            try (Statement st = connection.createStatement();
+                 ResultSet rs = st.executeQuery(
+                         "SELECT COUNT(*) FROM `" + table.replace("`", "``") + "`")) {
 
                 if (rs.next()) {
+                    counts.put(table, rs.getLong(1));
+                }
+            } catch (SQLException e) {
+                System.out.println("Could not count rows of " + table + ", using estimate");
+            }
+        }
+    }
 
-                    rowCount = rs.getInt(1);
+    /**
+     * Per-table health data for reports: rows, columns, primary key and index
+     * count - fetched with 3 bulk queries (not per table).
+     */
+    public List<TableHealth> scanTables() throws SQLException {
+
+        List<TableHealth> tables = new ArrayList<>();
+
+        {
+            Map<String, Integer> columns = new HashMap<>();
+            try (Statement st = connection.createStatement();
+                 ResultSet rs = st.executeQuery(
+                         "SELECT TABLE_NAME, COUNT(*) FROM information_schema.COLUMNS "
+                                 + "WHERE TABLE_SCHEMA = DATABASE() GROUP BY TABLE_NAME")) {
+                while (rs.next()) {
+                    columns.put(rs.getString(1), rs.getInt(2));
+                }
+            }
+
+            // value = {index count, has primary key (0/1)}
+            Map<String, int[]> indexes = new HashMap<>();
+            try (Statement st = connection.createStatement();
+                 ResultSet rs = st.executeQuery(
+                         "SELECT TABLE_NAME, COUNT(DISTINCT INDEX_NAME), "
+                                 + "MAX(CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END) "
+                                 + "FROM information_schema.STATISTICS "
+                                 + "WHERE TABLE_SCHEMA = DATABASE() GROUP BY TABLE_NAME")) {
+                while (rs.next()) {
+                    indexes.put(rs.getString(1), new int[]{rs.getInt(2), rs.getInt(3)});
+                }
+            }
+
+            SuggestionEngine engine = new SuggestionEngine();
+
+            for (TableInfo info : getTableRowCounts()) {
+                String name = info.getTableName();
+
+                TableHealth table = new TableHealth(name);
+                table.setRowCount(info.getRowCount());
+                table.setColumnCount(columns.getOrDefault(name, 0));
+
+                int[] idx = indexes.get(name);
+                table.setIndexCount(idx == null ? 0 : idx[0]);
+                table.setHasPrimaryKey(idx != null && idx[1] == 1);
+
+                if (!table.isHasPrimaryKey()) {
+                    table.addWarning("Missing primary key");
+                }
+                if (table.getIndexCount() == 0) {
+                    table.addWarning("No indexes found");
                 }
 
-                TableHealth table =
-                        new TableHealth();
-
-                table.setTableName(tableName);
-
-                table.setRowCount(rowCount);
-
+                engine.generateSuggestions(table);
                 tables.add(table);
             }
 
-        } catch (Exception e) {
-
-            e.printStackTrace();
         }
 
         return tables;

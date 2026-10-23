@@ -11,18 +11,26 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class HealthReporter {
 
-    private final List<ReportInfo> reports =
-            new ArrayList<>();
+    private final Map<Integer, List<ReportInfo>> userReports =
+            new ConcurrentHashMap<>();
 
-    public List<ReportInfo> getReports() {
+    public List<ReportInfo> getReports(int userId) {
+        return new ArrayList<>(
+                userReports.getOrDefault(userId, new ArrayList<>())
+        );
+    }
 
-        return reports;
+    public void restoreReports(int userId, List<ReportInfo> reports) {
+        userReports.put(userId, new ArrayList<>(reports));
     }
 
     public ReportInfo generateReport(
+            int userId,
             List<TableHealth> tables,
             String type
     ) throws Exception {
@@ -30,7 +38,6 @@ public class HealthReporter {
         File dir = new File("reports");
 
         if (!dir.exists()) {
-
             dir.mkdirs();
         }
 
@@ -41,14 +48,20 @@ public class HealthReporter {
                         )
                 );
 
+        // FIX: embed _u{userId}_ in filename so the download endpoint
+        // can verify the file belongs to this user (prevents cross-user access).
         String fileName =
-                "health_report_" + timestamp + ".txt";
+                "health_report_u" + userId + "_" + timestamp + ".txt";
 
         Path reportFile =
                 Paths.get("reports", fileName);
 
         StringBuilder content =
                 new StringBuilder();
+
+        content.append("USER ID: ").append(userId).append("\n");
+        content.append("REPORT TYPE: ").append(type).append("\n");
+        content.append("GENERATED: ").append(LocalDateTime.now()).append("\n\n");
 
         if (type.equalsIgnoreCase("STANDARD")) {
 
@@ -114,61 +127,38 @@ public class HealthReporter {
             }
         }
 
-        content.append(
-                "DATABASE HEALTH REPORT\n"
-        );
-
-        content.append(
-                "Generated: "
-        ).append(
-                LocalDateTime.now()
-        ).append("\n\n");
-
         Files.write(
                 reportFile,
                 content.toString().getBytes()
         );
 
-        ReportInfo report =
-                new ReportInfo();
+        ReportInfo report = new ReportInfo();
 
         report.setId(timestamp);
-
-        report.setType(
-                "Database Health"
-        );
-
+        report.setType("Database Health");
         report.setCreatedOn(
                 LocalDateTime.now().format(
-                        DateTimeFormatter.ofPattern(
-                                "yyyy-MM-dd HH:mm"
-                        )
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
                 )
         );
-
         report.setStatus("SUCCESS");
-
         report.setFileName(fileName);
 
         long bytes = Files.size(reportFile);
-
         double kb = bytes / 1024.0;
+        report.setSize(String.format("%.2f KB", kb));
 
-        report.setSize(
-                String.format("%.2f KB", kb)
-        );
-
-        reports.add(0, report);
+        userReports
+                .computeIfAbsent(userId, ignored -> new ArrayList<>())
+                .add(0, report);
 
         return report;
     }
 
-    public void deleteReport(
-            String id
-    ) {
-
-        reports.removeIf(
-                r -> r.getId().equals(id)
-        );
+    public void deleteReport(int userId, String id) {
+        List<ReportInfo> reports = userReports.get(userId);
+        if (reports != null) {
+            reports.removeIf(r -> r.getId().equals(id));
+        }
     }
 }

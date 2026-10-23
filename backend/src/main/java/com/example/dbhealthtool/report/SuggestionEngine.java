@@ -25,7 +25,8 @@ public class SuggestionEngine {
         if (table.getColumnCount() > 10) {
 
             table.addSuggestion(
-                    "Table has many columns. Check normalization."
+                    "Table " + table.getTableName()
+                            + " has many columns. Check normalization."
             );
         }
     }
